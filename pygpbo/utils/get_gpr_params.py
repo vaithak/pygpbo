@@ -16,5 +16,5 @@ def get_gpr_params(params):
         if param not in params:
             params[param] = def_val
 
-    return param
+    return params
 
