@@ -1,0 +1,15 @@
+version: 2
+jobs:
+  build:
+    machine:
+      image: ubuntu-2004:202010-01 # recommended linux image
+    resource_class: medium
+    steps:
+       - checkout
+       - run:
+            sudo apt-get update;
+            sudo add-apt-repository universe;
+            sudo apt install python3-pip;
+            pip3 install -r requirements.txt;
+            pip3 install -U pytest;
+            python3 -m pytest tests;
