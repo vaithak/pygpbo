@@ -1,8 +1,10 @@
-version: 2
+version: 2.1
+orbs:
+  codecov: codecov/codecov@1.0.2
 jobs:
   build:
     machine:
-      image: ubuntu-2004:202010-01 # recommended linux image
+      image: ubuntu-2004:202010-01
     resource_class: medium
     steps:
        - checkout
@@ -11,5 +13,10 @@ jobs:
             sudo add-apt-repository universe;
             sudo apt install python3-pip;
             pip3 install -r requirements.txt;
-            pip3 install -U pytest;
-            python3 -m pytest tests;
+            pip3 install pytest;
+            pip3 install pytest-cov;
+            python3 -m pytest --cov=pygpbo --cov-report=xml tests;
+       - codecov/upload:
+            file: './coverage.xml'
+            token: 'f1fd4c12-23b4-4936-acb5-d372cd4e9d1a'
+
