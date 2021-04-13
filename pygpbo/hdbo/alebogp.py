@@ -16,6 +16,7 @@ from gpytorch.kernels.rbf_kernel import postprocess_rbf
 from matplotlib import pyplot as plt
 
 from collections import OrderedDict
+import copy
 
 def function(X,noise=0):
   def func(x):
@@ -35,7 +36,7 @@ for i1 in a1:
             train_x[ctr,1] = i2
             train_x[ctr,2] = i3
             ctr+=1
-
+B = torch.tensor(get_proj_matrix(3,2,1),dtype=torch.float32)
 train_x_d = (train_x @ B.t())
 train_y = function(train_x)
 train_y = train_y.squeeze(1)
@@ -66,6 +67,7 @@ class AleboKernel(gpytorch.kernels.Kernel):
     U = torch.cholesky(T,upper = True)
     self.idx = U.nonzero().t().tolist()
     Uvec = U[self.idx]#.repeat(*batch_shape,1)
+    print(Uvec)
     self.register_parameter(name = "Uvec",parameter=torch.nn.Parameter(Uvec))
     
   def forward(self,x1,x2,**params):
@@ -87,7 +89,7 @@ class AleboGP(gpytorch.models.ExactGP):
     covar_x = self.covar_module(x)
     return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-B = torch.tensor(get_proj_matrix(3,2,1),dtype=torch.float32)
+
 likelihood = gpytorch.likelihoods.GaussianLikelihood()
 model = AleboGP(train_x_d, train_y, likelihood,B)
 
@@ -125,7 +127,7 @@ def get_r2_square(model,likelihood,train_x,train_y):
   sum_diff = 0
   for i in range(train_x.shape[0]):
     r2_square += (observed_pred.mean[i].detach().numpy()-train_y[i].numpy())**2
-  sum_diff += np.sum(upper[0,:].detach().numpy())-np.sum(lower[0,:].detach().numpy())
+  sum_diff += np.sum(upper.detach().numpy())-np.sum(lower.detach().numpy())
 
   return r2_square,sum_diff
     
@@ -134,7 +136,7 @@ def get_best_fit_gp(train_x,train_y,n_trials=10):
   best_state = {}
   r2_square = 1e9
   for i in range(n_trials):
-    likelihood = gpytorch.likelihoods.GaussianLikelihood(batch_shape=torch.Size([1]))
+    likelihood = gpytorch.likelihoods.GaussianLikelihood()
     model = AleboGP(train_x, train_y, likelihood,B)
 
     model,likelihood = train(model,likelihood,train_x,train_y)
@@ -145,7 +147,7 @@ def get_best_fit_gp(train_x,train_y,n_trials=10):
       best_state = model.state_dict()
       r2_square = r2_square_i
   
-  best_likelihood =gpytorch.likelihoods.GaussianLikelihood(batch_shape=torch.Size([1]))
+  best_likelihood =gpytorch.likelihoods.GaussianLikelihood()
   best_model = AleboGP(train_x, train_y, likelihood,B)
   best_model.state_dict(best_state)
 
@@ -156,7 +158,7 @@ def get_best_fit_gp(train_x,train_y,n_trials=10):
   # return list of Uvec for each model
 likelihood, model = get_best_fit_gp(train_x @ B.t(),train_y)
 
-def get_grad(model,likelihood,x0):
+def get_param_hessian(model,likelihood,x0):
   ## x0 is the model parameter at which we have to return  grad
 
   model.train()
@@ -179,4 +181,33 @@ lower,upper = observed_pred.confidence_region()
 plt.plot(train_y, observed_pred.mean.detach().numpy(),'bo' ,label="Pred")
 plt.plot(train_y,train_y,label='Ideal')
 plt.legend()
+
+def double_derivative(i,epsilon_i,m1,m2,l1,l2,train_x,train_y,training_iter):
+    '''Function which takes the models m1 and m2 (m2 is for m1+epsilon)
+        and returns the double derivative for i-th component'''
+    m1,l1 = train(m1,l1,train_x,train_y,training_iter)
+    m2,l2 = train(m2,l2,train_x,train_y,training_iter)
+    g1 = (m1.covar_module.base_kernel.Uvec.grad)
+    g2 = (m2.covar_module.base_kernel.Uvec.grad)
+    return (g2[i] - g1[i])/epsilon_i
+
+
+def print_param(model):
+  print()
+  for x in model.named_parameters():
+      print(x)
+  print()
+
+def update_Uvec(model,likelihood,i,ep):
+  model_copy = copy.deepcopy(model)
+  print_param(model_copy)
+  Uvec = model_copy.covar_module.base_kernel.Uvec
+  model_copy.covar_module.base_kernel.Uvec.requires_grad_(False)
+  Uvec[i] = Uvec[i]+ep
+  model_copy.covar_module.base_kernel.Uvec.requires_grad_(True)
+  print_param(model_copy)
+
+
+  
+update_Uvec(model,likelihood,0,torch.tensor(1))
 
