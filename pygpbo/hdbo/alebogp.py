@@ -42,6 +42,8 @@ train_y = function(train_x)
 train_y = train_y.squeeze(1)
 
 def get_proj_matrix(D,d,hypersphere=0):
+  ''' Takes three arguments D : column size, d : row size and hypersphere = 0/1 (if hypersphere is 1 then sample each row of B from S^{D-1} else from N(0,1))
+  returns a random B matrix of shape d x D '''
   A = np.random.normal(0,1,(d,D))
   if hypersphere==1:
     for row in range(d):
@@ -52,6 +54,7 @@ def get_proj_matrix(D,d,hypersphere=0):
 
 
 class AleboKernel(gpytorch.kernels.Kernel):
+  ''' creates instances of alebo kernel in which distance metric is mahalonobis instead of euclidean distance.'''
   def __init__(self,B):
     super().__init__(has_length=False,ard_num_dims=None,eps=0.0)
     self.d = B.shape[0]
@@ -80,6 +83,7 @@ class AleboKernel(gpytorch.kernels.Kernel):
     return self.covar_dist(z1,z2,square_dist=True,dist_postprocess_func=postprocess_rbf,**params)
 
 class AleboGP(gpytorch.models.ExactGP):
+  ''' Creates instance of Alebo GP by taking into account the mahalonobis kernel '''
   def __init__(self, train_x, train_y, likelihood,B):
     super().__init__(train_x, train_y, likelihood)
     self.covar_module = gpytorch.kernels.ScaleKernel(base_kernel=AleboKernel(B=B))
@@ -94,6 +98,7 @@ likelihood = gpytorch.likelihoods.GaussianLikelihood()
 model = AleboGP(train_x_d, train_y, likelihood,B)
 
 def train(model,likelihood,train_x,train_y,training_iter=50):
+  ''' Takes model and training data and return the optimised parameter of the AleboGP model'''
 # training_iter = 50
   model.train()
   likelihood.train()
@@ -121,6 +126,7 @@ def train(model,likelihood,train_x,train_y,training_iter=50):
 model,likelihood = train(model,likelihood,train_x_d,train_y,1)
 
 def get_r2_square(model,likelihood,train_x,train_y):
+  ''' takes mode and training data and calculates r2 square score for of the model on the data'''
   observed_pred = likelihood(model(train_x))
   lower,upper = observed_pred.confidence_region()
   r2_square = 0
@@ -132,6 +138,7 @@ def get_r2_square(model,likelihood,train_x,train_y):
   return r2_square,sum_diff
     
 def get_best_fit_gp(train_x,train_y,n_trials=10):
+  ''' generates and train n_trials number of models and return the model that fits the data in the best way by using r2 square metric. '''
   ## Use MLL if it gives poor result.
   best_state = {}
   r2_square = 1e9
@@ -199,6 +206,7 @@ def print_param(model):
   print()
 
 def update_Uvec(model,likelihood,i,ep):
+  ''' updates the ith element of Uvec model parameter from Uvec[i] to Uvec[i]+ep and returns the model with updated parameters'''
   model_copy = copy.deepcopy(model)
   print_param(model_copy)
   Uvec = model_copy.covar_module.base_kernel.Uvec
