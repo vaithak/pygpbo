@@ -36,10 +36,6 @@ for i1 in a1:
             train_x[ctr,1] = i2
             train_x[ctr,2] = i3
             ctr+=1
-B = torch.tensor(get_proj_matrix(3,2,1),dtype=torch.float32)
-train_x_d = (train_x @ B.t())
-train_y = function(train_x)
-train_y = train_y.squeeze(1)
 
 def get_proj_matrix(D,d,hypersphere=0):
   ''' Takes three arguments D : column size, d : row size and hypersphere = 0/1 (if hypersphere is 1 then sample each row of B from S^{D-1} else from N(0,1))
@@ -50,6 +46,12 @@ def get_proj_matrix(D,d,hypersphere=0):
       N = np.linalg.norm(A[row,:])
       A[row,:] = A[row,:]/N
   return A
+
+B = torch.tensor(get_proj_matrix(3,2,1),dtype=torch.float32)
+train_x_d = (train_x @ B.t())
+train_y = function(train_x)
+train_y = train_y.squeeze(1)
+
 
 
 
@@ -97,7 +99,7 @@ class AleboGP(gpytorch.models.ExactGP):
 likelihood = gpytorch.likelihoods.GaussianLikelihood()
 model = AleboGP(train_x_d, train_y, likelihood,B)
 
-def train(model,likelihood,train_x,train_y,training_iter=50):
+def train(model,likelihood,train_x,train_y,training_iter=1000):
   ''' Takes model and training data and return the optimised parameter of the AleboGP model'''
 # training_iter = 50
   model.train()
@@ -116,6 +118,7 @@ def train(model,likelihood,train_x,train_y,training_iter=50):
       loss.backward()
       optimizer.step()
       params_dict = OrderedDict(mll.named_parameters())
+      print(loss)
 
   
   model.eval()
@@ -123,7 +126,7 @@ def train(model,likelihood,train_x,train_y,training_iter=50):
 
   return model,likelihood
 
-model,likelihood = train(model,likelihood,train_x_d,train_y,1)
+model,likelihood = train(model,likelihood,train_x_d,train_y,1000)
 
 def get_r2_square(model,likelihood,train_x,train_y):
   ''' takes mode and training data and calculates r2 square score for of the model on the data'''
@@ -189,11 +192,11 @@ plt.plot(train_y, observed_pred.mean.detach().numpy(),'bo' ,label="Pred")
 plt.plot(train_y,train_y,label='Ideal')
 plt.legend()
 
-def double_derivative(i,epsilon_i,m1,m2,l1,l2,train_x,train_y,training_iter):
+def double_derivative(i,epsilon_i,m1,m2,l1,l2,train_x,train_y):
     '''Function which takes the models m1 and m2 (m2 is for m1+epsilon)
         and returns the double derivative for i-th component'''
-    m1,l1 = train(m1,l1,train_x,train_y,training_iter)
-    m2,l2 = train(m2,l2,train_x,train_y,training_iter)
+    m1,l1 = train(m1,l1,train_x,train_y)
+    m2,l2 = train(m2,l2,train_x,train_y)
     g1 = (m1.covar_module.base_kernel.Uvec.grad)
     g2 = (m2.covar_module.base_kernel.Uvec.grad)
     return (g2[i] - g1[i])/epsilon_i
@@ -216,6 +219,74 @@ def update_Uvec(model,likelihood,i,ep):
   print_param(model_copy)
 
 
+def sample_U(model,likelihood,train_x,train_y,n=10):
+  '''Takes best fit model and return n model where each model's Uvec is sampled from laplace approx of MAP model(model,likelihood)'''
+  Uvec = model.covar_module.base_kernel.Uvec
+  mean_constant = model.mean_module.constant
+  output_scale = model.covar_module.raw_outputscale
+  noise_covar = model.likelihood.noise_covar.raw_noise
+
+  hessian = np.zeros((Uvec.shape[0],Uvec.shape[0]))
+  ep = 1e-3 * np.abs(Uvec.detach().numpy()) + 1e-4
+  for j in range(Uvec.shape[0]):
+    m2,l2 = update_Uvec(model,likelihood,j,ep[j])
+    hessian[i,i] = double_derivative(j,ep[j],model,m2,likelihood,l2,train_x,train_y)
   
-update_Uvec(model,likelihood,0,torch.tensor(1))
+  Sigma = np.linalg.inv(-H)
+  samples = np.random.multivariate_normal(mean=Uvec.detach().numpy(), cov=Sigma, size=(n - 1))
+  
+
+  m_list = [model]
+  l_list = [likelihood]
+
+  for i in range(n-1):
+    new_likelihood = gpytorch.likelihoods.GaussianLikelihood()
+    new_model = AleboGP(train_x, train_y, likelihood,B)
+    new_model.train()
+    # Set mean constant
+    new_model.mean_module.constant.requires_grad_(False)
+    new_model.mean_module.constant.copy_(mean_constant)
+    new_model.mean_module.constant.requires_grad_(True)
+
+    # Set outputscale
+    new_model.covar_module.raw_outputscale.requires_grad_(False)
+    new_model.covar_module.raw_outputscale.copy_(output_scale)
+    new_model.covar_module.raw_outputscale.requires_grad_(True)
+    
+    # Set noise covaiance
+
+    new_model.likelihood.noise_covar.raw_noise.requires_grad_(False)
+    new_model.likelihood.noise_covar.raw_noise.copy_(noise_covar)
+    new_model.likelihood.noise_covar.raw_noise.requires_grad_(True)
+
+    # Set Uvec 
+
+    new_Uvec = torch.tensor(samples[i])
+    new_model.covar_module.base_kernel.Uvec.requires_grad_(False)
+    new_model.covar_module.base_kernel.Uvec.copy_(new_Uvec)
+    new_model.covar_module.base_kernel.Uvec.requires_grad_(False)
+
+    new_model.eval()
+    new_model,new_likelihood = train(new_model,new_likelihood,train_x,train_y)
+
+    m_list.append(new_model)
+    l_list.append(new_likelihood)
+
+  
+  return m_list,l_list
+
+
+def get_final_pred(models,likelihoods,test_x): # test_x is in n*d dimensions.returns means,variances
+    preds = [likelihood(model(test_x @ B.t())) for likelihood,model in zip(likelihoods,models)]
+    means = torch.tensor([[y.mean for y in x] for x in preds]).t()
+    variances = torch.tensor([[y.variance for y in x] for x in preds]).t()
+    mu = torch.mean(means,axis=1)
+    variance = torch.mean(variances,axis=1) + torch.var(means,axis=1,unbiased=False)
+    return mu,variance
+
+get_final_pred([model],[likelihood],train_x[0:2,:])
+
+
+
+# update_Uvec(model,likelihood,0,torch.tensor(1))
 
