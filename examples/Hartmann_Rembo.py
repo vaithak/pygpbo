@@ -1,38 +1,57 @@
-# Reference: https://www.sfu.ca/~ssurjano/branin.html
-
 import pygpbo
 import numpy as np
 
-# x is an n-dimemsional vector, n>3
-def F(x, noise=0):
+# X is an n-dimemsional vector, n>6
+def F(X, noise=0):
     results = []
-    for i in range(x.shape[0]):
-        p1, p2 = x[i][0:2]
-        results.append( [-(np.power((p2-5.1/(4*np.power(3.14,2))*np.power(p1,2)+5/3.14*p1-6),2)+10*(1-1/(8*3.14))*np.cos(p1)+10) + noise*np.random.randn() ])
+    for i in range(X.shape[0]):
+        x1, x2, x3, x4, x5, x6 = X[i][0:6]
+        x = np.array([x1, x2, x3, x4, x5, x6])
+        
+        A = np.array([[10  , 3  , 17  , 3.50, 1.7, 8 ],
+                      [0.05, 10 , 17  , 0.1 , 8  , 14],
+                      [3   , 3.5, 1.7 , 10  , 17 , 8 ],
+                      [17  , 8  , 0.05, 10  , 0.1, 14]])
+
+        P = 1e-4 * np.array([[1312, 1696, 5569, 124 , 8283, 5886],
+                             [2329, 4135, 8307, 3736, 1004, 9991],
+                             [2348, 1451, 3522, 2883, 3047, 6650],
+                             [4047, 8828, 8732, 5743, 1091, 381]])
+
+        alpha = np.array([1.0, 1.2, 3.0, 3.2])
+
+        res = 0.0
+        for i in range(4):
+            curr_res = 0.0
+            for j in range(6):
+                curr_res += A[i, j] * ((x[j] - P[i, j])**2)
+            res -= (alpha[i] * np.exp(-curr_res))
+
+        results.append([-res])  # - for minimize
 
     return np.array(results)
 
 D = 100
-d_e = 2
-bounds = [(-5, 10), (0, 15)] + [(0, 1) for i in range(D-2)]
+d_e = 6
+bounds = [(0, 1) for i in range(D)]
 n_runs = 10
-n_iter = 50
+n_iter = 200
 
 final_avg_res = np.zeros((n_iter + 2, 1))
 run = 0
 while (run < n_runs):
-    try:
+    # try:
         optimizer = pygpbo.hdbo.REMBO(F, bounds, d_e=d_e)
         optimizer.maximize(n_iter=n_iter)
         print("Run: ", run, ", Optimum point and value: ", optimizer.max_sample[1])
         prefix_max = np.maximum.accumulate(optimizer.Y_samples)
         final_avg_res += prefix_max
         run += 1
-    except:
-        print("Run: ", run, ", Exception")
+    # except:
+        # print("Run: ", run, ", Exception")
 
 final_avg_res /= (1.0*n_runs)
-np.save("branin_100.npy", final_avg_res)
+np.save("hartmann_100.npy", final_avg_res)
 # with open(f'REMBO_Branin_{D}_{d_e}_iter{n_iter}.npy', 'wb') as f:
 #     np.save(f, best_X_samples)
 #     np.save(f, best_Y_samples)
