@@ -28,3 +28,7 @@ Optimum point and value:  ({'p1': 9.474934424992359, 'p2': 2.373669396349481}, a
 """
 ```
 ![images/Branin_StdBO.png](images/Branin_StdBO.png)  
+
+## Comparison of techniques for High Dimensional BO
+![combined](images/compare_combined.png)  
+
