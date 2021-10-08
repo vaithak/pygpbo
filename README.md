@@ -28,3 +28,7 @@ Optimum point and value:  ({'p1': 9.474934424992359, 'p2': 2.373669396349481}, a
 """
 ```
 ![images/Branin_StdBO.png](images/Branin_StdBO.png)  
+
+### Comparison of techniques for High Dimensional BO (mainly [ALEBO](https://arxiv.org/abs/2001.11659) and [REMBO](https://arxiv.org/abs/1301.1942))
+![branin](images/compare_branin.png)  ![hartmann](images/compare_h6.png)
+
